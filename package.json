@@ -18,7 +18,7 @@
     "jade": "~1.11.0",
     "jsonwebtoken": "^8.5.1",
     "mongo": "^0.1.0",
-    "morgan": "~1.6.1",
+    "morgan": "~1.9.1",
     "multiparty": "^4.2.1",
     "serve-favicon": "~2.3.0",
     "ykt-mongo": "^1.1.3"
