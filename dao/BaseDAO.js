@@ -1,20 +1,21 @@
-var db = require("./database");
-module.exports.reduce = function(collection,operate,param,func){
-    if(operate.toLowerCase() == "find"){
-        find(collection,param,func);
-    }else if(operate.toLowerCase() == "add"){
+const db = require("ykt-mongo");
+module.exports.reduce = function(method,collection,id,param,func){
+    if(method == "get"){
+        find(collection,id,param,func);
+    }else if(method == "post"){
         insert(collection,param,func);
-    }else if(operate.toLowerCase() == "update"){
-        update(collection,param,func);
-    }else if(operate.toLowerCase() == "del"){
-        del(collection,param,func);
+    }else if(method == "put"){
+        update(collection,id,param,func);
+    }else if(method == "delete"){
+        del(collection,id,param,func);
     }else{
-        console.error("请求方法错误："+operate);
-        func("请求方法错误："+operate);
+        console.error("请求方法错误："+method);
+        func("请求方法错误："+method);
     }
 }
 
-var find = function(collection,param,func){
+var find = function(collection,id,param,func){
+
     var page = param.page;
     var rows = param.rows;
     delete param.page;
@@ -27,13 +28,14 @@ var find = function(collection,param,func){
         var findType = param.findType;
         delete param.findType;
     }
+    
     if(param.ref){
         var ref = param.ref;
         delete param.ref;
     }
-
+   
     for(var key in param){
-        if(key == "_id" || /.+\$id$/.test(key)){
+        if(/.+\$id$/.test(key)){
             param[key] = db.ObjectID(param[key]);
         }else{
             if(findType && findType == "exact"){
@@ -44,20 +46,35 @@ var find = function(collection,param,func){
 
         }
     }
+    if(id){
+        param._id = db.ObjectID(id);
+    }
 
     if(!page && !rows){
-        db.collection(collection).find(param,function(data){
+        db.collection(collection).find(param,async function(data){
 
             if(submitType == "findJoin"){
                 if(ref){
-
-                    db.findJoin(data,ref,function(joinData){
+                    
+                    if(typeof ref == "string"){
+                        let joinData = await db.findJoin(data,ref);
                         if(param._id){
                             func(joinData[0]);
                         }else{
                             func(joinData);
                         }
-                    });
+                    }else{
+                        
+                        for(let r of ref){
+                            data = await db.findJoin(data,r);                         
+                        }
+                        if(param._id){
+                            func(data[0]);
+                        }else{
+                            func(data);
+                        }
+                    }
+                    
                 }else{
                     console.error("请求参数错误：没有指定关联的集合。");
                     func("请求参数错误：没有指定关联的集合。");
@@ -75,14 +92,29 @@ var find = function(collection,param,func){
     }else{
         page = parseInt(page);
         rows = parseInt(rows);
-        db.collection(collection).findByPage(page,rows,param,function(data){
+        db.collection(collection).findByPage(page,rows,param,async function(data){
             if(submitType == "findJoin"){
                 if(ref){
 
-                    db.findJoin(data.rows,ref,function(joinData){
+                    // db.findJoin(data.rows,ref,function(joinData){
+                    //     data.rows = joinData;
+                    //     func(data);
+                    // });
+                    let joinData;
+                    if(typeof ref == "string"){
+                        joinData = await db.findJoin(data.rows,ref);
                         data.rows = joinData;
                         func(data);
-                    });
+                    }else{
+                        
+                        let joinData = data.rows;
+                        for(let r of ref){
+                            joinData = await db.findJoin(joinData,r);                         
+                        }
+                        data.rows = joinData;
+                        func(data);
+                       
+                    }
                 }else{
                     console.error("请求参数错误：没有指定关联的集合。");
                     func("请求参数错误：没有指定关联的集合。");
@@ -97,9 +129,10 @@ var find = function(collection,param,func){
 
 }
 
-var insert = function(collection,param,func){
+var insert = async function(collection,param,func){
 
     if(param.submitType == "addMore"){
+        let dataAry = [];
         if(!param.data){
             console.error("增加多条数据时参数错误");
             func("增加多条数据时参数错误");
@@ -111,9 +144,10 @@ var insert = function(collection,param,func){
                         param.data[i][k].$id = db.ObjectID(param.data[i][k].$id);
                     }
                 }
-                db.collection(collection).insert(param.data[i],function(){});
+                let data = await db.collection(collection).insert(param.data[i]);
+                dataAry.push(data.ops[0]);
             }
-            func("suc");
+            func(dataAry);
         }
     }else{
         delete param._id;
@@ -122,25 +156,35 @@ var insert = function(collection,param,func){
                 param[k].$id = db.ObjectID(param[k].$id);
             }
         }
-        db.collection(collection).insert(param,function(){
-            func("suc");
-        });
+        
+        let data = await db.collection(collection).insert(param);
+        func(data.ops[0] || data);
     }
 
 }
 
-var update = function(collection,param,func){
-    var _id = param._id;
-    delete param._id;
+var update = function(collection,id,param,func){
+    let _id;
+    if(!id){
+        _id = param._id;
+        delete param._id;
+    }else{
+        _id = id;
+    }
+    for(var k in param){
+        if(param[k].$id){
+            param[k].$id = db.ObjectID(param[k].$id);
+        }
+    }
     db.collection(collection).update({_id:db.ObjectID(_id)},{$set:param},function(){
         func("suc");
     });
 }
 
-var del = function(collection,param,func){
+var del = function(collection,id,param,func){
 
-    if(param._id){
-        param._id = db.ObjectID(param._id);
+    if(id || param._id){
+        param._id = db.ObjectID(id || param._id);
         db.collection(collection).remove({_id:param._id},function(){
             func("suc");
         });
